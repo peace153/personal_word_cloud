@@ -1,7 +1,7 @@
 # Live Word Cloud — Vercel version
 
 One URL, two views:
-- **Phone / tablet** → type one word and send.
+- **Phone / tablet, or `/join` on any device** → type one word and send.
 - **Laptop / desktop (wide window)** → projector word cloud, QR code + link, and host controls
   (Edit question, Hide words, Fullscreen, Clear all). Force a view with `?view=display` or `?view=join`.
 
@@ -15,8 +15,9 @@ Without Redis configured the API returns a clear error rather than keeping separ
 2. Vercel dashboard → your project → **Storage** → **Create** → **Upstash for Redis** (free plan) → connect it to the project.
    This injects `KV_REST_API_URL` / `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_*`); both are supported.
 3. Redeploy so the new variables are live: `npx vercel --prod`.
-4. Open the production URL on your laptop (wide window) for the host page. The QR code and link are built from the
-   address you opened, so open it via the final production URL, not a preview URL.
+4. Open the production URL on your laptop (wide window) for the host page. The QR code and on-screen link point to
+   `<your-domain>/join` (the audience page, which works on any device). They always use the project's public production
+   domain (Vercel's `VERCEL_PROJECT_PRODUCTION_URL`), even if you opened the host page from a deployment URL.
 5. Before the event: open the host page, click **Clear all** to remove any test words.
 
 ## Notes

@@ -102,7 +102,8 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
-  const forced = params.get('view'); // ?view=display or ?view=join overrides the auto-detect
+  // /join is the audience address (QR + link). ?view=display or ?view=join also override the auto-detect.
+  const forced = params.get('view') || (/\/join\/?$/.test(location.pathname) ? 'join' : null);
   const isDisplay = forced ? forced === 'display'
     : matchMedia('(min-width: 900px) and (hover: hover) and (pointer: fine)').matches;
 
@@ -159,13 +160,21 @@
   function initDisplay() {
     $('display').hidden = false;
 
-    // QR + link point at this page without any query string.
-    const joinUrl = location.origin + location.pathname;
-    const qr = qrcode(0, 'M');
-    qr.addData(joinUrl);
-    qr.make();
-    $('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
-    $('url').textContent = joinUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    // QR + link point at the audience page (/join). The origin is this page's own unless the server reports the
+    // project's public production URL: opening the host page from a protected deployment URL must not leak into the QR.
+    const pathBase = location.pathname.replace(/\/(index\.html|join\/?)?$/, '');
+    let joinOrigin = '';
+    function showJoin(origin) {
+      if (origin === joinOrigin) return;
+      joinOrigin = origin;
+      const joinUrl = origin + pathBase + '/join';
+      const qr = qrcode(0, 'M');
+      qr.addData(joinUrl);
+      qr.make();
+      $('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+      $('url').textContent = joinUrl.replace(/^https?:\/\//, '');
+    }
+    showJoin(location.origin);
 
     const cloud = $('cloud'), measure = $('measure');
     const PALETTE = ['#ffd23f', '#3bf4fb', '#ff5d8f', '#8cff66', '#ff9f1c', '#b69cff', '#ffffff', '#4dabff'];
@@ -267,6 +276,7 @@
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || 'Server error');
         $('err').hidden = true;
+        if (data.joinOrigin) showJoin(data.joinOrigin);
         if (!editing && data.question && data.question !== currentQ) { currentQ = data.question; qEl.textContent = currentQ; }
         const next = data.words.sort((a, b) => a.w < b.w ? -1 : 1);
         const key = JSON.stringify(next);
