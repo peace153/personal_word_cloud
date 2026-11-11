@@ -1,0 +1,13 @@
+{
+  "name": "wordcloud",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node dev-server.js"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.41.0",
+    "obscenity": "^0.4.6",
+    "qrcode-generator": "^2.0.4"
+  }
+}
