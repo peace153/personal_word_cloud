@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Word Cloud</title>
+<style>
+  :root { --bg: #05070d; --fg: #ffffff; --muted: #9aa4b8; --accent: #ffd23f; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", "Thonburi", "Leelawadee UI", Tahoma, sans-serif; }
+  [hidden] { display: none !important; }
+
+  /* ---------- Phone (join) view ---------- */
+  #join { min-height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 1.5rem; padding: 2rem 1.25rem; max-width: 32rem; margin: 0 auto; }
+  #join h1 { font-size: clamp(1.9rem, 8vw, 2.6rem); line-height: 1.15; margin: 0; font-weight: 800; }
+  #join form { display: flex; flex-direction: column; gap: 1rem; }
+  #join input { font: inherit; font-size: 1.6rem; font-weight: 700; padding: 1rem 1.1rem; border-radius: 1rem; border: 3px solid #2b3550;
+    background: #0e1424; color: var(--fg); width: 100%; outline: none; }
+  #join input:focus { border-color: var(--accent); }
+  #join button { font: inherit; font-size: 1.4rem; font-weight: 800; padding: 1rem; border-radius: 1rem; border: 0; background: var(--accent); color: #111; cursor: pointer; }
+  #join button:disabled { opacity: .5; }
+  #join .msg { min-height: 1.5rem; color: #ff7a90; font-size: 1.1rem; margin: 0; }
+  #thanks { text-align: center; display: flex; flex-direction: column; gap: 1.25rem; align-items: center; }
+  #thanks .big { font-size: 4rem; margin: 0; }
+  #thanks p { margin: 0; font-size: 1.6rem; font-weight: 700; }
+  #thanks button { background: transparent; color: var(--accent); border: 3px solid var(--accent); width: auto; padding: .8rem 1.6rem; font-size: 1.15rem; }
+
+  /* ---------- Display (projector) view ---------- */
+  #display { height: 100vh; display: grid; grid-template-columns: 1fr clamp(300px, 25vw, 520px); grid-template-rows: auto 1fr;
+    gap: 0 2vmin; padding: 3vmin; overflow: hidden; }
+  #display h1 { grid-column: 1 / -1; margin: 0 0 1vmin; font-size: clamp(2rem, 5.4vmin, 5rem); font-weight: 800; line-height: 1.1; }
+  #dispQ { min-height: 1.1em; }
+  #dispQ.editing { outline: 3px dashed var(--accent); outline-offset: .15em; border-radius: .15em; }
+  .cloud { display: flex; flex-wrap: wrap; align-content: center; justify-content: center; align-items: center;
+    gap: .05em .35em; padding: 1vmin; overflow: hidden; min-height: 0; min-width: 0; }
+  .cloud.measure { position: absolute; visibility: hidden; pointer-events: none; }
+  /* line-height leaves room for Thai tone marks; long words/phrases wrap instead of forcing the whole cloud to shrink */
+  .w { font-weight: 800; line-height: 1.25; max-width: 100%; text-align: center; overflow-wrap: anywhere; display: inline-block; transition: font-size .7s ease; position: relative; }
+  .empty { color: var(--muted); font-size: 4vmin; font-weight: 700; animation: pulse 2s ease-in-out infinite; align-self: center; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  aside { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.2vmin; text-align: center; border-left: 2px solid #1c2438; padding-left: 2vmin; min-width: 0; }
+  aside .label { margin: 0; font-size: clamp(1.2rem, 3vmin, 2.4rem); font-weight: 700; color: var(--muted); }
+  #qr { background: #fff; padding: 2vmin; border-radius: 2vmin; width: 100%; max-width: 46vmin; line-height: 0; }
+  #qr svg { width: 100%; height: auto; }
+  #url { margin: 0; font-size: clamp(1.1rem, 2.8vmin, 2.4rem); font-weight: 800; color: var(--accent); word-break: break-all; }
+  #total { margin: 0; font-size: clamp(1rem, 2.4vmin, 2rem); color: var(--muted); font-weight: 700; }
+
+  /* Moderation toolbar */
+  #bar { position: fixed; left: 1.5vmin; bottom: 1.5vmin; display: flex; gap: .6rem; opacity: .35; transition: opacity .2s; z-index: 5; }
+  #bar:hover, body.mod #bar { opacity: 1; }
+  #bar button { font: inherit; font-size: 1rem; font-weight: 700; padding: .6rem 1rem; border-radius: .6rem; border: 2px solid #3a4666; background: #0e1424; color: var(--fg); cursor: pointer; }
+  #bar button.on { background: #ff4d6d; border-color: #ff4d6d; color: #fff; }
+  body.mod .w { cursor: pointer; }
+  body.mod .w:hover { outline: .06em dashed #ff4d6d; outline-offset: .08em; }
+  body.mod .w::after { content: "✕"; position: absolute; top: -.1em; right: -.25em; font-size: .28em; background: #ff4d6d; color: #fff; border-radius: 50%; width: 1.4em; height: 1.4em; display: grid; place-items: center; line-height: 1; }
+  #toast { position: fixed; bottom: 1.5vmin; left: 50%; transform: translateX(-50%); background: #1c2438; border: 2px solid #3a4666; padding: .8rem 1.2rem; border-radius: .8rem; font-weight: 700; display: flex; gap: 1rem; align-items: center; z-index: 6; }
+  #toast button { font: inherit; font-weight: 800; background: none; border: 0; color: var(--accent); cursor: pointer; }
+  #err { position: fixed; top: 1vmin; right: 1vmin; color: #ff7a90; font-weight: 700; z-index: 6; }
+</style>
+</head>
+<body>
+
+<section id="join" hidden>
+  <h1 id="joinQ"></h1>
+  <form id="form" autocomplete="off">
+    <input id="word" type="text" placeholder="Your word" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-label="Your word">
+    <button id="send" type="submit">Send</button>
+    <p class="msg" id="msg" role="alert"></p>
+  </form>
+  <div id="thanks" hidden>
+    <p class="big">🎉</p>
+    <p>Thanks! Look up at the screen.</p>
+    <button id="again" type="button">Add another word</button>
+  </div>
+</section>
+
+<main id="display" hidden>
+  <h1 id="dispQ"></h1>
+  <section class="cloud" id="cloud"><div class="empty">Waiting for the first word…</div></section>
+  <aside>
+    <p class="label">Scan to join</p>
+    <div id="qr"></div>
+    <p class="label">or go to</p>
+    <p id="url"></p>
+    <p id="total"></p>
+  </aside>
+  <div class="cloud measure" id="measure"></div>
+  <div id="bar">
+    <button id="qBtn" type="button">Edit question</button>
+    <button id="modBtn" type="button">Hide words</button>
+    <button id="fsBtn" type="button">Fullscreen</button>
+    <button id="clearBtn" type="button">Clear all</button>
+  </div>
+  <div id="toast" hidden><span id="toastText"></span><button id="undo" type="button">Undo</button></div>
+  <div id="err" hidden></div>
+</main>
+
+<script src="vendor/qrcode.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  const forced = params.get('view'); // ?view=display or ?view=join overrides the auto-detect
+  const isDisplay = forced ? forced === 'display'
+    : matchMedia('(min-width: 900px) and (hover: hover) and (pointer: fine)').matches;
+
+  async function post(url, body) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Something went wrong');
+    return data;
+  }
+
+  /* ================= Phone ================= */
+  function initJoin() {
+    $('join').hidden = false;
+    const form = $('form'), input = $('word'), msg = $('msg'), send = $('send'), thanks = $('thanks');
+    input.focus();
+
+    // Show the host's current question; re-check now and then so a change reaches open phones.
+    const FALLBACK_Q = 'In one word, how do you feel about AI?';
+    async function loadQuestion() {
+      try {
+        const r = await fetch('/api/question', { cache: 'no-store' });
+        const data = await r.json();
+        if (r.ok && data.question) $('joinQ').textContent = data.question;
+      } catch { if (!$('joinQ').textContent) $('joinQ').textContent = FALLBACK_Q; }
+    }
+    loadQuestion();
+    setInterval(() => { if (!document.hidden) loadQuestion(); }, 20000);
+
+    // 50 visible characters (a Thai consonant with its vowel/tone marks counts as one), so no plain maxlength.
+    const MAX_LEN = 50, seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    input.addEventListener('input', () => {
+      const parts = [...seg.segment(input.value)];
+      if (parts.length > MAX_LEN) input.value = parts.slice(0, MAX_LEN).map((s) => s.segment).join('');
+    });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.textContent = '';
+      send.disabled = true;
+      try {
+        await post('/api/submit', { word: input.value });
+        input.value = '';
+        form.hidden = true;
+        thanks.hidden = false;
+      } catch (err) {
+        msg.textContent = err.message;
+      } finally {
+        send.disabled = false;
+      }
+    });
+    $('again').addEventListener('click', () => { thanks.hidden = true; form.hidden = false; input.focus(); loadQuestion(); });
+  }
+
+  /* ================= Display ================= */
+  function initDisplay() {
+    $('display').hidden = false;
+
+    // QR + link point at this page without any query string.
+    const joinUrl = location.origin + location.pathname;
+    const qr = qrcode(0, 'M');
+    qr.addData(joinUrl);
+    qr.make();
+    $('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    $('url').textContent = joinUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+    const cloud = $('cloud'), measure = $('measure');
+    const PALETTE = ['#ffd23f', '#3bf4fb', '#ff5d8f', '#8cff66', '#ff9f1c', '#b69cff', '#ffffff', '#4dabff'];
+    const nodes = new Map(); // word -> element
+    let lastKey = '', modOn = false, items = [];
+    const qEl = $('dispQ');
+    let currentQ = '', editing = false;
+
+    const hash = (s) => { let h = 5381; for (const c of s) h = ((h << 5) + h + c.codePointAt(0)) >>> 0; return h; };
+    const maxPx = () => Math.min(innerWidth, innerHeight) * 0.2;
+    const fontSize = (n, max) => Math.max(maxPx() * (0.28 + 0.72 * Math.sqrt(n / max)), Math.min(innerWidth, innerHeight) * 0.045);
+
+    // Measure off-screen (no transitions) to find a scale at which every word fits.
+    function fitScale(list, max) {
+      const box = cloud.getBoundingClientRect();
+      measure.style.width = box.width + 'px';
+      measure.style.height = box.height + 'px';
+      measure.style.left = box.left + 'px';
+      measure.style.top = box.top + 'px';
+      let s = 1;
+      for (let i = 0; i < 30; i++) {
+        measure.replaceChildren(...list.map((it) => {
+          const el = document.createElement('span');
+          el.className = 'w';
+          el.style.fontSize = fontSize(it.n, max) * s + 'px';
+          el.style.transition = 'none';
+          el.textContent = it.w;
+          return el;
+        }));
+        if (measure.scrollHeight <= measure.clientHeight + 1 && measure.scrollWidth <= measure.clientWidth + 1) break;
+        s *= 0.93;
+      }
+      measure.replaceChildren();
+      return s;
+    }
+
+    function render() {
+      $('total').textContent = items.length
+        ? `${items.reduce((a, b) => a + b.n, 0)} responses · ${items.length} words` : '';
+      const empty = cloud.querySelector('.empty');
+      if (!items.length) {
+        nodes.forEach((el) => el.remove());
+        nodes.clear();
+        if (!empty) cloud.innerHTML = '<div class="empty">Waiting for the first word…</div>';
+        return;
+      }
+      if (empty) empty.remove();
+
+      const max = Math.max(...items.map((i) => i.n));
+      const scale = fitScale(items, max);
+
+      // FLIP: remember where existing words are so we can glide them to new spots.
+      const before = new Map();
+      nodes.forEach((el, w) => before.set(w, el.getBoundingClientRect()));
+
+      const present = new Set(items.map((i) => i.w));
+      nodes.forEach((el, w) => { if (!present.has(w)) { el.remove(); nodes.delete(w); } });
+
+      const fresh = [];
+      for (const it of items) {
+        let el = nodes.get(it.w);
+        if (!el) {
+          el = document.createElement('span');
+          el.className = 'w';
+          el.textContent = it.w;
+          el.dataset.w = it.w;
+          el.style.color = PALETTE[hash(it.w) % PALETTE.length];
+          nodes.set(it.w, el);
+          fresh.push(el);
+        }
+        el.style.fontSize = fontSize(it.n, max) * scale + 'px';
+        el.style.order = hash(it.w) % 1000; // stable, pseudo-random placement
+      }
+      // (re)attach in order so DOM matches
+      for (const el of nodes.values()) if (!el.isConnected) cloud.appendChild(el);
+
+      // Layout of the existing words after the font-size change is instant (transition affects paint only for font-size),
+      // so measure their new rects and animate the position delta.
+      requestAnimationFrame(() => {
+        nodes.forEach((el, w) => {
+          const b = before.get(w);
+          if (!b) return;
+          const a = el.getBoundingClientRect();
+          const dx = b.left - a.left, dy = b.top - a.top;
+          if (Math.abs(dx) + Math.abs(dy) > 2) {
+            el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 700, easing: 'cubic-bezier(.2,.8,.2,1)' });
+          }
+        });
+        fresh.forEach((el) => el.animate(
+          [{ transform: 'scale(0)', opacity: 0 }, { transform: 'scale(1.25)', opacity: 1, offset: .6 }, { transform: 'scale(1)', opacity: 1 }],
+          { duration: 800, easing: 'ease-out' }));
+      });
+    }
+
+    async function refresh() {
+      if (document.hidden) return;
+      try {
+        const r = await fetch('/api/words', { cache: 'no-store' });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Server error');
+        $('err').hidden = true;
+        if (!editing && data.question && data.question !== currentQ) { currentQ = data.question; qEl.textContent = currentQ; }
+        const next = data.words.sort((a, b) => a.w < b.w ? -1 : 1);
+        const key = JSON.stringify(next);
+        if (key !== lastKey) { lastKey = key; items = next; render(); }
+      } catch (e) {
+        $('err').textContent = e.message;
+        $('err').hidden = false;
+      }
+    }
+    refresh();
+    setInterval(refresh, 2000);
+    // Re-fit when the cloud area changes size (window resize, or the question wrapping to more/fewer lines).
+    let rt; new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(render, 150); }).observe(cloud);
+
+    /* ---- Moderation ---- */
+    const toast = $('toast'); let toastTimer;
+    function showToast(text, onUndo) {
+      $('toastText').textContent = text;
+      toast.hidden = false;
+      $('undo').hidden = !onUndo;
+      $('undo').onclick = () => { toast.hidden = true; onUndo && onUndo(); };
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toast.hidden = true; }, 6000);
+    }
+    /* ---- Edit question: the headline becomes editable; Enter/click away saves, Esc cancels ---- */
+    async function finishEdit(save) {
+      editing = false;
+      qEl.contentEditable = 'false';
+      qEl.classList.remove('editing');
+      const text = qEl.textContent.replace(/\s+/g, ' ').trim();
+      if (!save || !text || text === currentQ) { qEl.textContent = currentQ; return; }
+      try {
+        await post('/api/admin', { action: 'question', question: text });
+        currentQ = text;
+        qEl.textContent = text;
+        showToast('Question updated for everyone');
+        if (items.length && confirm('Question changed. Clear the existing words too?')) {
+          await post('/api/admin', { action: 'reset' });
+          lastKey = ''; refresh();
+        }
+      } catch (err) { qEl.textContent = currentQ; showToast(err.message); }
+    }
+    $('qBtn').addEventListener('click', () => {
+      if (editing) return;
+      editing = true;
+      qEl.contentEditable = 'plaintext-only';
+      if (qEl.contentEditable !== 'plaintext-only') qEl.contentEditable = 'true'; // older browsers
+      qEl.classList.add('editing');
+      qEl.focus();
+      getSelection().selectAllChildren(qEl);
+    });
+    qEl.addEventListener('keydown', (e) => {
+      if (!editing) return;
+      if (e.key === 'Enter') { e.preventDefault(); finishEdit(true); }
+      else if (e.key === 'Escape') finishEdit(false);
+    });
+    qEl.addEventListener('blur', () => { if (editing) finishEdit(true); });
+
+    $('modBtn').addEventListener('click', () => {
+      modOn = !modOn;
+      document.body.classList.toggle('mod', modOn);
+      $('modBtn').classList.toggle('on', modOn);
+      $('modBtn').textContent = modOn ? 'Done hiding' : 'Hide words';
+      if (modOn) showToast('Click a word to hide it');
+    });
+    cloud.addEventListener('click', async (e) => {
+      const el = e.target.closest('.w');
+      if (!modOn || !el) return;
+      const w = el.dataset.w;
+      items = items.filter((i) => i.w !== w); lastKey = ''; render();
+      try {
+        await post('/api/admin', { action: 'hide', word: w });
+        showToast(`Hid "${w}"`, async () => { await post('/api/admin', { action: 'unhide', word: w }); lastKey = ''; refresh(); });
+      } catch (err) { showToast(err.message); refresh(); }
+    });
+    $('clearBtn').addEventListener('click', async () => {
+      if (!confirm('Remove ALL words and start over?')) return;
+      try { await post('/api/admin', { action: 'reset' }); lastKey = ''; refresh(); } catch (err) { showToast(err.message); }
+    });
+    $('fsBtn').addEventListener('click', () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(() => {});
+    });
+  }
+
+  (isDisplay ? initDisplay : initJoin)();
+})();
+</script>
+</body>
+</html>
